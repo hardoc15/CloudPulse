@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  data-generator:
+    build:
+      context: ./src/data-generator
+      dockerfile: Dockerfile
+    container_name: cloudpulse-data-generator
+    environment:
+      - LOG_LEVEL=INFO
+    volumes:
+      - ./src/data-generator:/app
+      - ~/.aws:/root/.aws:ro
+    networks:
+      - cloudpulse-network
+    command: ["python", "app.py", "--test"]
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: cloudpulse-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-storage:/var/lib/grafana
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning
+    networks:
+      - cloudpulse-network
+    depends_on:
+      - prometheus
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: cloudpulse-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus-storage:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    networks:
+      - cloudpulse-network
+
+  localstack:
+    image: localstack/localstack:latest
+    container_name: cloudpulse-localstack
+    ports:
+      - "4566:4566"
+      - "4510-4559:4510-4559"
+    environment:
+      - SERVICES=kinesis,s3,dynamodb,lambda,apigateway,cloudwatch,sns
+      - DEBUG=1
+      - DATA_DIR=/tmp/localstack/data
+      - DOCKER_HOST=unix:///var/run/docker.sock
+    volumes:
+      - "/tmp/localstack:/tmp/localstack"
+      - "/var/run/docker.sock:/var/run/docker.sock"
+    networks:
+      - cloudpulse-network
+    profiles:
+      - local-aws
+
+networks:
+  cloudpulse-network:
+    driver: bridge
+
+volumes:
+  grafana-storage:
+  prometheus-storage:
